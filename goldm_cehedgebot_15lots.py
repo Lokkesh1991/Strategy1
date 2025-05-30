@@ -3,11 +3,17 @@ import time
 import re
 from datetime import datetime, timedelta
 from kiteconnect import KiteConnect
-from token_manager import get_access_token
 
+# === ENV-SMART TOKEN MANAGER ===
+if os.getenv("RAILWAY_ENVIRONMENT"):
+    from Railway_token_manager import get_access_token
+else:
+    from token_manager import get_access_token
+
+# === CONFIG ===
 LOTS_TO_SELL = 15
 BATCH_SIZE = 5
-REBALANCE_INTERVAL = 4 * 60 * 60  # 4 hours
+REBALANCE_INTERVAL = 4 * 60 * 60
 ENTRY_DELAY = 1800
 
 PRICE_STEP = 1.0
@@ -74,12 +80,11 @@ def get_ce_strike_distribution(fut_price):
     strike1 = rounded_price + 1000
     strike2 = rounded_price + 2000
     strike3 = rounded_price + 3000
-    dist = {
+    return {
         strike1: 5,
         strike2: 5,
         strike3: 5
     }
-    return dist
 
 def place_ce_sell_order(kite, strike, expiry_date, lots):
     expiry_code = format_expiry_for_symbol(expiry_date)

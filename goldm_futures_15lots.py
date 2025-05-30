@@ -2,22 +2,31 @@ import os
 import time
 from datetime import datetime, timedelta, time as dtime
 from kiteconnect import KiteConnect
-from token_manager import get_access_token
+
+# Use Railway_token_manager on cloud, default one locally
+if os.getenv("RAILWAY_ENVIRONMENT"):
+    from Railway_token_manager import get_access_token
+else:
+    from token_manager import get_access_token
 
 # === CONFIG ===
 LOTS_PER_ENTRY = 5
 TOTAL_LOTS = 15
-DRY_RUN = False  # Set to False for live trading
-MONITOR_INTERVAL = 3600  # Check every 1 hour
-STAGGER_DELAY = 1800     # 30 minutes between entries
+DRY_RUN = False
+MONITOR_INTERVAL = 3600
+STAGGER_DELAY = 1800
 
 # === KITE SETUP ===
 def get_kite_client():
     api_key = os.getenv("KITE_API_KEY")
+    if not api_key:
+        raise Exception("API Key not set in environment variables.")
+
     kite = KiteConnect(api_key=api_key)
     access_token = get_access_token()
     kite.set_access_token(access_token)
     kite.profile()
+    print("✅ Connected to Kite.")
     return kite
 
 # === UTILITIES ===
@@ -92,7 +101,7 @@ def get_current_position(kite, retries=3):
 def run_goldm_monitor():
     kite = get_kite_client()
 
-    for batch in range(3):  # Limit to 3 staggered entries of 5 lots each
+    for batch in range(3):
         now = datetime.now()
         today = now.date()
         now_time = now.time()
@@ -104,16 +113,11 @@ def run_goldm_monitor():
             continue
 
         market_open_today = is_trading_day(today)
-
         expiry = get_expiry_date(2025, 6)
         rollover = get_rollover_date(expiry)
         days_to_expiry = (expiry - today).days
 
-        if today >= rollover or days_to_expiry <= 8:
-            new_contract = get_contract_symbol(2025, 7)  # July
-        else:
-            new_contract = get_contract_symbol(2025, 6)  # June
-
+        new_contract = get_contract_symbol(2025, 7 if today >= rollover or days_to_expiry <= 8 else 6)
         current_lots, current_contract = get_current_position(kite)
         print(f"\U0001F551 [{now.strftime('%H:%M:%S')}] Held: {current_lots} in {current_contract}")
 
@@ -154,11 +158,7 @@ def run_goldm_monitor():
             expiry = get_expiry_date(2025, 6)
             rollover = get_rollover_date(expiry)
             days_to_expiry = (expiry - today).days
-
-            if today >= rollover or days_to_expiry <= 8:
-                new_contract = get_contract_symbol(2025, 7)
-            else:
-                new_contract = get_contract_symbol(2025, 6)
+            new_contract = get_contract_symbol(2025, 7 if today >= rollover or days_to_expiry <= 8 else 6)
 
             current_lots, _ = get_current_position(kite)
             if current_lots >= TOTAL_LOTS:
