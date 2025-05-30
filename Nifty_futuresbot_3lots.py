@@ -156,4 +156,5 @@ def run_nifty_monitor():
 
 # === MAIN ===
 if __name__ == "__main__":
+    print("🚀 Starting Nifty Futures Bot...")
     run_nifty_monitor()

@@ -176,4 +176,5 @@ def run_nifty_ce_hedge_bot():
         time.sleep(REBALANCE_INTERVAL)
 
 if __name__ == "__main__":
+print("🚀 Starting Nifty hedge Bot...")
     run_nifty_ce_hedge_bot()
