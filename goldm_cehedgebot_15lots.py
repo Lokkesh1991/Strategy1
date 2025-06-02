@@ -86,7 +86,6 @@ def get_available_ce_strikes(kite, expiry_code):
                 ce_strikes.add(int(match.group(1)))
     return ce_strikes
 
-# ✅ FIXED Strike Calculation
 def get_ce_strike_distribution(fut_price):
     atm_strike = int(round(fut_price / 1000.0)) * 1000
     strike1 = atm_strike + 1000
@@ -131,9 +130,19 @@ def run_ce_hedge_bot():
     while True:
         current_lots = get_total_ce_lots(kite)
         fut_price = get_goldm_futures_ltp(kite)
+        print(f"📈 Fetched GoldM LTP: {fut_price}")  # ✅ LTP Logging
+
         available_strikes = get_available_ce_strikes(kite, expiry_code)
         full_dist = get_ce_strike_distribution(fut_price)
+
+        # ✅ Log missing strikes
+        missing = set(full_dist.keys()) - available_strikes
+        if missing:
+            print(f"⚠️ Missing CE strikes from instruments: {missing}")
+
         dist = {k: v for k, v in full_dist.items() if k in available_strikes}
+        if len(dist) < 3:
+            print(f"⚠️ Only {len(dist)} of 3 target strikes are available. Proceeding with available ones.")
 
         if current_lots < LOTS_TO_SELL:
             print(f"📉 Holding {current_lots} CE lots. Starting new round of CE hedging...")
