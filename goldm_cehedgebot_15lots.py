@@ -75,6 +75,17 @@ def get_goldm_futures_ltp(kite):
     ltp = kite.ltp(f"MCX:{symbol}")
     return list(ltp.values())[0]['last_price']
 
+def get_available_ce_strikes(kite, expiry_code):
+    instruments = kite.instruments("MCX")
+    ce_strikes = set()
+    pattern = re.compile(f"GOLDM{expiry_code}(\d{{5}})CE")
+    for inst in instruments:
+        if inst["segment"] == "MCX-OPT" and inst["tradingsymbol"].startswith(f"GOLDM{expiry_code}") and "CE" in inst["tradingsymbol"]:
+            match = pattern.search(inst["tradingsymbol"])
+            if match:
+                ce_strikes.add(int(match.group(1)))
+    return ce_strikes
+
 def get_ce_strike_distribution(fut_price):
     rounded_price = int((fut_price + 999) / 1000) * 1000
     strike1 = rounded_price + 1000
@@ -86,62 +97,6 @@ def get_ce_strike_distribution(fut_price):
         strike3: 5
     }
 
-def place_ce_sell_order(kite, strike, expiry_date, lots):
-    expiry_code = format_expiry_for_symbol(expiry_date)
-    symbol = f"GOLDM{expiry_code}{strike}CE"
-
-    for attempt in range(MAX_ATTEMPTS):
-        try:
-            current_total_lots = get_total_ce_lots(kite)
-            if current_total_lots >= LOTS_TO_SELL:
-                print(f"🛑 Aborting order: already holding {current_total_lots} CE lots (target: {LOTS_TO_SELL})")
-                return
-
-            ltp_data = kite.ltp(f"MCX:{symbol}")
-            if not ltp_data or not list(ltp_data.values()):
-                raise Exception(f"LTP data not available for {symbol}")
-            ltp = list(ltp_data.values())[0]['last_price']
-            price = round(ltp - PRICE_STEP, 1)
-            print(f"{datetime.now()} - SELL {lots} lot(s) of {symbol} @ {price} (Attempt {attempt + 1})")
-
-            order_id = kite.place_order(
-                variety=kite.VARIETY_REGULAR,
-                exchange="MCX",
-                tradingsymbol=symbol,
-                transaction_type=kite.TRANSACTION_TYPE_SELL,
-                quantity=lots,
-                price=price,
-                product=kite.PRODUCT_NRML,
-                order_type=kite.ORDER_TYPE_LIMIT
-            )
-
-            filled = False
-            for _ in range(MAX_WAIT_CYCLES):
-                order = kite.order_history(order_id)[-1]
-                status = order["status"]
-                if status == "COMPLETE":
-                    print(f"✅ Order filled: {symbol} (Order ID: {order_id})")
-                    filled = True
-                    break
-                elif status in ["REJECTED", "CANCELLED"]:
-                    raise Exception(f"Order {order_id} for {symbol} failed: {status}")
-                else:
-                    print(f"⌛ Waiting for order to fill... Status: {status}")
-                    time.sleep(CHECK_INTERVAL)
-
-            if filled:
-                return
-
-            kite.cancel_order(variety=kite.VARIETY_REGULAR, order_id=order_id)
-            print(f"⚠️ Cancelled stale order: {order_id}")
-
-        except Exception as e:
-            print(f"❌ Attempt {attempt + 1} failed for {symbol}: {e}")
-            time.sleep(5)
-
-    print("❌ All attempts failed for", symbol)
-    print("⏸️ Skipping this strike and moving to next after maintaining only current lots")
-
 def run_ce_hedge_bot():
     print("🚀 Starting CE Hedge Bot...")
     kite = get_kite_client()
@@ -150,13 +105,17 @@ def run_ce_hedge_bot():
     if (expiry - today).days <= 4:
         expiry = get_next_month_expiry(expiry)
     print(f"📅 Using expiry: {expiry}")
+    expiry_code = format_expiry_for_symbol(expiry)
+    available_strikes = get_available_ce_strikes(kite, expiry_code)
 
     while True:
         current_lots = get_total_ce_lots(kite)
+        fut_price = get_goldm_futures_ltp(kite)
+        full_dist = get_ce_strike_distribution(fut_price)
+        dist = {k: v for k, v in full_dist.items() if k in available_strikes}
+
         if current_lots < LOTS_TO_SELL:
             print(f"📉 Holding {current_lots} CE lots. Starting new round of CE hedging...")
-            fut_price = get_goldm_futures_ltp(kite)
-            dist = get_ce_strike_distribution(fut_price)
             print(f"🎯 Target strike distribution: {dist}")
             for strike, qty in dist.items():
                 for _ in range(qty):
@@ -164,8 +123,6 @@ def run_ce_hedge_bot():
                     time.sleep(3)
         else:
             print(f"✅ Already holding {current_lots} CE lots. Performing rebalance...")
-            fut_price = get_goldm_futures_ltp(kite)
-            dist = get_ce_strike_distribution(fut_price)
             print(f"🔁 Rebalancing target: {dist}")
             from copy import deepcopy
             current_distribution = deepcopy(get_existing_ce_positions(kite))
@@ -190,7 +147,7 @@ def run_ce_hedge_bot():
                 exit_strike, exit_qty = exit_strikes[oi]
                 enter_strike, enter_qty = enter_strikes[ei]
                 try:
-                    exit_symbol = f"GOLDM{format_expiry_for_symbol(expiry)}{exit_strike}CE"
+                    exit_symbol = f"GOLDM{expiry_code}{exit_strike}CE"
                     ltp = kite.ltp(f"MCX:{exit_symbol}")
                     buy_price = round(list(ltp.values())[0]['last_price'] + 0.5, 1)
                     print(f"🔽 Exiting 1 lot from {exit_symbol} @ {buy_price}")
@@ -205,7 +162,10 @@ def run_ce_hedge_bot():
                         order_type=kite.ORDER_TYPE_LIMIT
                     )
                     for _ in range(MAX_WAIT_CYCLES):
-                        order = kite.order_history(order_id)[-1]
+                        history = kite.order_history(order_id)
+                        if not history:
+                            raise Exception(f"Buyback order history not found for {order_id}")
+                        order = history[-1]
                         status = order["status"]
                         if status == "COMPLETE":
                             print(f"✅ Buyback filled for {exit_symbol}")
