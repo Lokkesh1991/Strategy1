@@ -106,11 +106,12 @@ def run_ce_hedge_bot():
         expiry = get_next_month_expiry(expiry)
     print(f"📅 Using expiry: {expiry}")
     expiry_code = format_expiry_for_symbol(expiry)
-    available_strikes = get_available_ce_strikes(kite, expiry_code)
+    # moved inside loop
 
     while True:
         current_lots = get_total_ce_lots(kite)
         fut_price = get_goldm_futures_ltp(kite)
+        available_strikes = get_available_ce_strikes(kite, expiry_code)
         full_dist = get_ce_strike_distribution(fut_price)
         dist = {k: v for k, v in full_dist.items() if k in available_strikes}
 
