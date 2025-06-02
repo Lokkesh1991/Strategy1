@@ -86,16 +86,37 @@ def get_available_ce_strikes(kite, expiry_code):
                 ce_strikes.add(int(match.group(1)))
     return ce_strikes
 
+# ✅ FIXED Strike Calculation
 def get_ce_strike_distribution(fut_price):
-    rounded_price = int((fut_price + 999) / 1000) * 1000
-    strike1 = rounded_price + 1000
-    strike2 = rounded_price + 2000
-    strike3 = rounded_price + 3000
+    atm_strike = int(round(fut_price / 1000.0)) * 1000
+    strike1 = atm_strike + 1000
+    strike2 = atm_strike + 2000
+    strike3 = atm_strike + 3000
     return {
         strike1: 5,
         strike2: 5,
         strike3: 5
     }
+
+def place_ce_sell_order(kite, strike, expiry, qty):
+    expiry_code = format_expiry_for_symbol(expiry)
+    symbol = f"GOLDM{expiry_code}{strike}CE"
+    try:
+        ltp = kite.ltp(f"MCX:{symbol}")
+        sell_price = round(list(ltp.values())[0]['last_price'] - 0.5, 1)
+    except:
+        sell_price = 1.0
+    print(f"💰 Selling 1 lot of {symbol} @ {sell_price}")
+    kite.place_order(
+        variety=kite.VARIETY_REGULAR,
+        exchange="MCX",
+        tradingsymbol=symbol,
+        transaction_type=kite.TRANSACTION_TYPE_SELL,
+        quantity=qty,
+        price=sell_price,
+        product=kite.PRODUCT_NRML,
+        order_type=kite.ORDER_TYPE_LIMIT
+    )
 
 def run_ce_hedge_bot():
     print("🚀 Starting CE Hedge Bot...")
@@ -106,7 +127,6 @@ def run_ce_hedge_bot():
         expiry = get_next_month_expiry(expiry)
     print(f"📅 Using expiry: {expiry}")
     expiry_code = format_expiry_for_symbol(expiry)
-    # moved inside loop
 
     while True:
         current_lots = get_total_ce_lots(kite)
